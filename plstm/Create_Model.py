@@ -1,6 +1,6 @@
 from __future__ import print_function
 import sys
-sys.path.append('/home/is/takatomo-k/work/End-to-End/lstm/att_mt_emph_trans/create_model/')
+#sys.path.append('/home/is/takatomo-k/work/End-to-End/lstm/att_mt_emph_trans/create_model/')
 import chainer
 import component as com
 import chainer.functions as F
@@ -8,6 +8,7 @@ import chainer.links as L
 from chainer import cuda
 from chainer import optimizers
 import model
+
 class Create_Model(chainer.Chain):
     def __init__(self, input_units, hidden_unit, output_units, depth=1, \
             drop_ratio=0., src_vocab=None, trg_vocab=None, att_type="dot"):

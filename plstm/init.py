@@ -1,7 +1,7 @@
 import numpy as np
 from chainer import cuda
 #import cuda.cupy as cuda.cupy
-
+xp=cuda.cupy
 class Initializer(object):
     """Base class for parameter tensor initializers.
     The :class:`Initializer` class represents a weight initializer used
@@ -29,6 +29,9 @@ class Initializer(object):
         """
         raise NotImplementedError()
 
+    def to_gpu(self):
+        global xp
+        xp = cuda.cupy
 
 class Constant(Initializer):
     """Initialize weights with constant value.
@@ -41,7 +44,11 @@ class Constant(Initializer):
         self.val = val
         cuda.get_device(1).use()
     def sample(self, shape):
-        return cuda.cupy.array(cuda.cupy.ones(shape) * self.val).astype(cuda.cupy.float32)
+        return xp.array(xp.ones(shape) * self.val).astype(xp.float32)
+    def to_gpu(self):
+        global xp
+        xp = cuda.cupy
+
 
 class Uniform(Initializer):
     """Sample initial weights from the uniform distribution.
@@ -60,8 +67,8 @@ class Uniform(Initializer):
     """
     def __init__(self, range=0.01, std=None, mean=0.0):
         if std is not None:
-            a = mean - cuda.cupy.sqrt(3) * std
-            b = mean + cuda.cupy.sqrt(3) * std
+            a = mean - xp.sqrt(3) * std
+            b = mean + xp.sqrt(3) * std
         else:
             try:
                 a, b = range  # range is a tuple
@@ -73,4 +80,8 @@ class Uniform(Initializer):
 
     def sample(self, shape):
         #print("return numpy array")
-        return cuda.cupy.array((cuda.cupy.random.uniform(low=self.range[0], high=self.range[1], size=shape))).astype(cuda.cupy.float32)
+        return xp.array((xp.random.uniform(low=self.range[0], high=self.range[1], size=shape))).astype(xp.float32)
+
+    def to_gpu(self):
+        global xp
+        xp = cuda.cupy

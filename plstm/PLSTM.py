@@ -47,24 +47,25 @@ class PLSTMBase(chainer.Chain):
         )
 
 class PhasedLSTM(PLSTMBase):
-    def __init__(self, in_size, out_size,
-                 Period=init.Uniform((10,100)),
-                 Shift=init.Uniform( (0., 1000.)),
-                 On_End=init.Constant(0.05),
-                 Alfa=init.Constant(0.001)):
+    def __init__(self, in_size, out_size):
         super(PhasedLSTM, self).__init__(out_size,in_size)
+        self.add_param("Period",(20,out_size))
+        self.add_param("Shift",(20,out_size))
+        #self.add_param("On_End",(20,out_size))
+        #self.add_param("Alfa",(20,out_size))
+        self.Period=Variable(init.Uniform((10,100)).sample((20,out_size)))
+        self.Shift=Variable(init.Uniform( (0., 1000.)).sample((20,out_size)))
+        self.On_End=Variable(init.Constant(0.05).sample((20,out_size)))
+        self.Alfa=Variable(init.Constant(0.001).sample((20,out_size)))
         self.reset_state()
         self.t=0
         self.reset_state()
-        self.Period = Period.sample((20,out_size))
-        self.Shift = Shift.sample((20,out_size))
-        self.On_End = On_End.sample((20,out_size))
-        self.Alfa=Alfa.sample((20,out_size))
+
     def __call__(self,x):
         #import pdb; pdb.set_trace()
         phi=Mod.mod((self.t-self.Shift),self.Period)/self.Period
-        k=F.where(phi.data<self.On_End/2 , 2*phi/self.On_End , 2-2*phi/self.On_End)
-        k=F.where(phi.data>self.On_End,self.Alfa*phi,k)
+        k=F.where(phi.data<self.On_End.data/2 , 2*phi/self.On_End , 2-2*phi/self.On_End)
+        k=F.where(phi.data>self.On_End.data,self.Alfa*phi,k)
 
         ft = self.W_fx(x)
         it = self.W_ix(x)
