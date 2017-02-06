@@ -57,7 +57,7 @@ class Trainer(object):
         if not isinstance(self.accum_loss, int):
             self.model.zerograds()
             self.accum_loss.backward()
-            self.accum_loss.unchain_backward()  # truncate
+            #self.accum_loss.unchain_backward()  # truncate
             self.accum_loss = 0
             self.optimizer.update()
 

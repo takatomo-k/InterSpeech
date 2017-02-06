@@ -13,62 +13,6 @@ from chainer.functions.activation import tanh
 from chainer.utils import type_check
 from chainer import utils
 
-class AttentionS2S(chainer.Chain):
-  def __init__(self,src_dim,hidden_units,tgt_dim):
-    super(AttentionS2S, self).__init__(
-        fenc = Encoder(src_dim,hidden_units),
-        benc = Encoder(src_dim,hidden_units),
-        att = Attention(hidden_units),
-        dec = Decoder(hidden_units,tgt_dim),
-    )
-    self.hidden_units = hidden_units
-    self.tgt_dim = tgt_dim
-    self.src_dim=src_dim
-  def reset(self,batchsize):
-    self.zerograds()
-    self.x_list = []
-
-  def append(self, x):
-      self.x_list.append(x)
-
-  def encode(self):
-    batchsize =self.x_list[0].shape[0]
-    ZEROS = Variable(xp.zeros((batchsize, self.hidden_units)).astype(xp.float32))
-    c = ZEROS
-    a = ZEROS
-    a_list = []
-    for x in self.x_list:
-      c, a = self.fenc(x, c, a)
-      a_list.append(a)
-    c = ZEROS
-    b = ZEROS
-    b_list = []
-    for x in reversed(self.x_list):
-      c, b = self.benc(x, c, b)
-      b_list.insert(0, b)
-    self.a_list = a_list
-    self.b_list = b_list
-    self.c = ZEROS
-    self.h = ZEROS
-
-  def decode(self, y):
-
-      aa, bb = self.att(self.a_list, self.b_list, self.h)
-      y, self.c, self.h = self.dec(y, self.c, self.h, aa, bb)
-      return y
-
-  def save_spec(self, filename):
-    with open(filename, 'w') as fp:
-      print(self.hidden_units, file=fp)
-      print(self.tgt_dim, file=fp)
-
-  @staticmethod
-  def load_spec(filename):
-    with open(filename) as fp:
-      src_dim = int(next(fp))
-      hidden_units = int(next(fp))
-      tgt_dim= int(next(fp))
-      return AttentionS2S(src_dim,hidden_units,tgt_dim)
 
 
 class StackLSTM(ChainList):
@@ -79,7 +23,7 @@ class StackLSTM(ChainList):
             #import pdb; pdb.set_trace()
             #chain_list.append(PLSTMBase(start, O))
             chain_list.append(L.LSTM(start,O))
-        
+
         self._drop_ratio = drop_ratio
         super(StackLSTM, self).__init__(*chain_list)
         self._train = True

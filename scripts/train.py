@@ -140,6 +140,7 @@ def learn(model,mode="train"):
     for x,y in pbar:
 
         model.encode(x)
+        #print("enc done")
         sen_loss = 0
         sen_id=0
         buf =0
@@ -149,6 +150,7 @@ def learn(model,mode="train"):
             else:
                 o = model.decode(buf)
 
+            #print("dec done")
             buf=t
             ids,value=t.data.nonzero()
             if len(ids)<batchsize:
@@ -171,7 +173,8 @@ def learn(model,mode="train"):
                 #print(loss_t.data)
             if mode is "train" and loss_t.data<100:
                 trainer.add_loss(loss_t)
-                trainer.update_params()
+        trainer.update_params()
+        #print("updata done")
 
         model.reset()
         total_loss += (sen_loss)
