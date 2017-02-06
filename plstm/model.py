@@ -12,6 +12,62 @@ from chainer.functions.activation import sigmoid
 from chainer.functions.activation import tanh
 from chainer.utils import type_check
 from chainer import utils
+import PLSTM
+
+class StackLSTM(ChainList):
+    def __init__(self, x, O, depth=1, drop_ratio=0):
+        chain_list = []
+        for i in range(depth):
+            start = x if i == 0 else O
+            #import pdb; pdb.set_trace()
+            chain_list.append(PLSTM.PhasedLSTM(start, O))
+            #chain_list.append(L.LSTM(start,O))
+
+        self._drop_ratio = drop_ratio
+        super(StackLSTM, self).__init__(*chain_list)
+        self._train = True
+
+    @property
+    def train(self):
+        return self._train
+
+    @train.setter
+    def train(self, flag):
+        self._train = flag
+
+    def reset_state(self):
+        for lstm in self:
+            lstm.reset_state()
+
+    def __call__(self, x, is_train=False):
+        ret = None
+        for i, hidden_units in enumerate(self):
+            h = x if i == 0 else ret
+            ret = hidden_units(h)
+        if self.train and self._drop_ratio:
+            return F.dropout(ret, train=is_train, ratio=self._drop_ratio)
+        else:
+            return ret
+
+    def get_state(self):
+        ret = []
+        for lstm in self:
+            ret.append((lstm.c, lstm.h))
+        return ret
+
+    @property
+    def h(self):
+        return self.get_state()[-1][-1]
+
+    @h.setter
+    def h(self, h):
+        for lstm_self in self:
+            lstm_self.h = h
+
+    def set_state(self, state):
+        for lstm_self, lstm_in in zip(self, state):
+            lstm_self.c, lstm_self.h = lstm_in
+
 
 class BaseAttention(chainer.Chain):
     def __init__(self, hidden_units, att_type="dot"):
@@ -61,7 +117,96 @@ class BaseAttention(chainer.Chain):
     def reset(self):
         pass
 
+class PLSTMBase(chainer.Chain):
+    def __init__(self,n_units,n_inputs=None):
+        if n_inputs is None:
+            n_inputs = n_units
+        super(PLSTMBase, self).__init__(
+            W_fh=L.Linear(n_inputs, n_units),
+            W_ih=L.Linear(n_inputs, n_units),
+            W_oh=L.Linear(n_inputs, n_units),
+            W_ch=L.Linear(n_inputs, n_units),
+            W_fx=L.Linear(n_inputs, n_units),
+            W_ix=L.Linear(n_inputs, n_units),
+            W_ox=L.Linear(n_inputs, n_units),
+            W_cx=L.Linear(n_inputs, n_units),
+        )
 
+
+
+
+class Mod(chainer.function.Function) :
+
+    @property
+    def label(self) :
+        return '__mod__'
+
+    def check_type_forward(self, in_types) :
+        type_check.expect(in_types.size() == 2)
+        #import pdb; pdb.set_trace()
+        type_check.expect(in_types[0].dtype.kind == in_types[1].dtype.kind,in_types[0].shape == in_types[1].shape)
+
+    def forward(self, x) :
+        return utils.force_array(x[0] % x[1]),
+
+    def backward(self, x, gy) :
+        return gy[0], -(x[0] // x[1])*gy[0]
+
+def mod(x, y) :
+    return Mod()(x, y)
+
+class PhasedLSTM(PLSTMBase):
+    def __init__(self, in_size, out_size,
+                 Period=Variable(np.array([50]).astype(np.float32)),
+                 Shift=Variable(np.array([500]).astype(np.float32)),
+                 On_End=Variable(np.array([0.005]).astype(np.float32)),
+                 Alfa=Variable(np.array([0.0001]).astype(np.float32))):
+        super(PhasedLSTM, self).__init__(out_size,in_size)
+        self.t=Variable(np.array([0.]).astype(np.float32))
+        self.reset_state()
+        self.Period = Period
+        self.Shift = Shift
+        self.On_End = On_End
+        self.Alfa=Alfa
+    def reset_state(self):
+        self.h = None
+        self.c = None
+    def __call__(self,x):
+
+        ft = self.W_fx(x)
+        it = self.W_ix(x)
+        ct = self.W_cx(x)
+        ot = self.W_ox(x)
+
+        if self.h is not None:
+            ft += self.W_fh(h)
+            it += self.W_ih(h)
+            ct += self.W_ch(h)
+            ot += self.W_oh(h)
+        ft = sigmoid.sigmoid(ft)
+        it = sigmoid.sigmoid(it)
+        ct = tanh.tanh(ct)
+        ot = sigmoid.sigmoid(ot)
+        phai=mod((self.t-self.Shift),self.Period)/self.Period
+        k=F.where(phai<self.On_End/2 , 2*phai/self.On_End , 2-2*phai/self.On_End)
+        k=F.where(phai>self.On_End,self.Alfa*phai,k)
+
+        c = it * ct
+        if self.c is not None:
+            c += ft * self.c
+        pc = k*c
+        if self.c is not None:
+            pc+=(1-k)*self.c
+
+        self.c = pc
+
+        h = ot * tanh.tanh(self.c)
+        ph = k*h
+        if self.h is not None:
+            ph+=(1-k)*self.h
+        self.h=ph
+
+        return self.h
 
 class BaseDecoder(chainer.Chain):
     def __init__(self, x, hidden_units, depth=1, drop_ratio=0.):
@@ -69,6 +214,12 @@ class BaseDecoder(chainer.Chain):
                 dec=StackLSTM(x, hidden_units, depth, drop_ratio)
                 #dec=PhasedLSTM(x,hidden_units)
              )
+        self._train = True
+
+    def train(self, flag):
+        self._train = flag
+        self.dec.train = flag
+
     def reset(self):
         self.dec.reset_state()
 
@@ -80,13 +231,18 @@ class BaseEncoder(chainer.Chain):
     def __init__(self, x, hidden_units, depth=1, drop_ratio=0.):
         super(BaseEncoder, self).__init__(
 
-                encF=L.StatefulPeepholeLSTM(x, hidden_units),
-                encB=L.StatefulPeepholeLSTM(x, hidden_units),
+                encF=StackLSTM(x, hidden_units, depth, drop_ratio),
+                encB=StackLSTM(x, hidden_units, depth, drop_ratio),
                 #encF=PhasedLSTM(x,hidden_units),
                 #encB=PhasedLSTM(x,hidden_units),
                 aw = L.Linear(hidden_units * 2, hidden_units)
                 )
         self._train = True
+
+    def train(self, flag):
+        self._train = flag
+        self.encF.train = flag
+        self.encB.train = flag
 
     def _encode_forward(self, x):
         return self.encF(x)

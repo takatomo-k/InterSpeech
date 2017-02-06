@@ -4,10 +4,11 @@ import numpy
 import chainer
 from chainer.functions.activation import sigmoid
 from chainer.functions.activation import tanh
-from chainer import link
-from chainer.links.connection import L
+from chainer import link,Variable
+import chainer.links as L
 import Mod
-
+import numpy as np
+import chainer.functions as F
 class LSTMBase(link.Chain):
 
     def __init__(self, n_units, n_inputs=None):
@@ -40,6 +41,11 @@ class PLSTMBase(chainer.Chain):
             W_ox=L.Linear(n_inputs, n_units),
             W_cx=L.Linear(n_inputs, n_units),
         )
+
+    def reset_state(self):
+        self.h = None
+        self.c = None
+
 
 
 class CoupledForgetLSTMBase(link.Chain):
@@ -98,26 +104,58 @@ class PhasedLSTM(PLSTMBase):
                  On_End=Variable(np.array([0.005]).astype(np.float32)),
                  Alfa=Variable(np.array([0.0001]).astype(np.float32))):
         super(PhasedLSTM, self).__init__(out_size,in_size)
+        self.reset_state()
         self.t=Variable(np.array([0.]).astype(np.float32))
         self.reset_state()
         self.Period = Period
         self.Shift = Shift
         self.On_End = On_End
         self.Alfa=Alfa
-    def __call__(self,x,h,c):
+    def __call__(self,x):
         phai=Mod.mod((self.t-self.Shift),self.Period)/self.Period
         k=F.where(phai<self.On_End/2 , 2*phai/self.On_End , 2-2*phai/self.On_End)
         k=F.where(phai>self.On_End,self.Alfa*phai,k,k)
 
-        ft = sigmoid.sigmoid(self.W_fx(x) + self.W_fh(h) + self.W_fc(c))
-        it = sigmoid.sigmoid(self.W_ix(x) + self.W_ih(h) + self.W_ic(c))
-        ct = tanh.tanh(self.W_cx(x) + self.W_ch(h))
-        ct = ft * c + it * ct
-        c  = k*ct +(1-k)*c
-        ot = sigmoid.sigmoid(self.W_ox(x) + self.W_oh(h) + self.W_oc(c))
-        ht = ot * tanh.tanh(c)
-        h =  k*ht +(1-k)*h
-        return h, c
+        ft = self.W_fx(x)
+        it = self.W_ix(x)
+        ct = self.W_cx(x)
+        ot = self.W_ox(x)
+
+        if self.h is not None and self.c is not None:
+            ft += self.W_fh(h) + self.W_fc(self.c)
+            it += self.W_ih(h) + self.W_ic(self.c)
+            ct += self.W_ch(h)
+            ot += self.W_oh(h)
+        ft = sigmoid.sigmoid(ft)
+        it = sigmoid.sigmoid(it)
+        ct = tanh.tanh(ct)
+
+
+        self.ct = it * ct
+        if self.c is not none:
+            self.ct += ft * c
+        c=k*ct
+        if self.c is not none:
+            self.c += (1-k)*self.c
+        self.c=c
+
+        ot = sigmoid.sigmoid(ot + self.W_oc(c))
+        self.h = ot * tanh.tanh(self.c)
+        return self.h
+
+    def set_state(self, h, c):
+        assert isinstance(h, chainer.Variable)
+        assert isinstance(c, chainer.Variable)
+        h_ = h
+        c_ = c
+        self.h = h_
+        self.c = c_
+
+    def reset_state(self):
+        self.h = None
+        self.c = None
+
+
 class StatefulLSTM(LSTMBase):
 
 
@@ -356,7 +394,7 @@ class CoupledForgetStatelessLSTM(CoupledForgetLSTMBase):
         ft = sigmoid.sigmoid(self.W_fx(x) + self.W_fh(h))
         ct = tanh.tanh(self.W_cx(x) + self.W_ch(h))
         ot = sigmoid.sigmoid(self.W_ox(x) + self.W_oh(h))
-        c = ft * c + (1 - ft)) * ct
+        c = ft * c + (1 - ft) * ct
         h = ot * tanh.tanh(c)
         return h, c
 

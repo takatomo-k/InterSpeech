@@ -5,7 +5,7 @@ from chainer import cuda
 import time
 import chainer.links as L
 import sys,os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../model')
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../plstm')
 import chainer.functions as F
 from Trainer import Trainer
 from Create_Model import Create_Model
@@ -22,6 +22,7 @@ args = sys.argv
 inconf=configparser.SafeConfigParser()
 inconf.read(args[1])
 
+
 data_dir        = inconf.get('settings','numpy_dir')
 src_dir         = data_dir+"/train/src/"
 trg_dir         = data_dir+"/train/trg/"
@@ -33,7 +34,11 @@ src_dim         = int(inconf.get('settings',"src_dim"))
 trg_dim         = int(inconf.get('settings',"trg_dim"))
 batchsize       = int(inconf.get('trainer','batchsize'))
 epoch           = int(inconf.get('trainer','epoch'))
-gpu             = int(inconf.get('gpu','gpu'))
+if args[2]:
+    gpu = int(args[2])
+else:
+    gpu             = int(inconf.get('gpu','gpu'))
+
 out_dir         = inconf.get('trainer','out_dir')
 units           = int(inconf.get('trainer','units'))
 hidden_units    = int(inconf.get('trainer','hidden_units'))
@@ -57,6 +62,7 @@ if(gpu >= 0):
     cuda.check_cuda_available()
     if(gpu >= 0) :
         xp = cuda.cupy
+        cuda.get_device(gpu).use()
         nnet.to_gpu()
         print ("use GPU",gpu)
     else :
@@ -136,9 +142,14 @@ def learn(model,mode="train"):
         model.encode(x)
         sen_loss = 0
         sen_id=0
+        buf =0
         for t in y:
-            o = model.decode(t)
+            if sen_id==0:
+                o = model.decode(t)
+            else:
+                o = model.decode(buf)
 
+            buf=t
             ids,value=t.data.nonzero()
             if len(ids)<batchsize:
                 import pdb; pdb.set_trace()
@@ -160,7 +171,7 @@ def learn(model,mode="train"):
                 #print(loss_t.data)
             if mode is "train" and loss_t.data<100:
                 trainer.add_loss(loss_t)
-        trainer.update_params()
+                trainer.update_params()
 
         model.reset()
         total_loss += (sen_loss)

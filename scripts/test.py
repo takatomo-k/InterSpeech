@@ -137,9 +137,14 @@ def learn(model,mode="train"):
         model.encode(x)
         sen_loss = 0
         sen_id=0
+        buf=0
         for t in y:
-            o = model.decode(t)
+            if sen_id==0:
+                o = model.decode(t)
+            else:
+                o = model.decode(buf)
 
+            buf=o
             ids,value=t.data.nonzero()
             if len(ids)<batchsize:
                 import pdb; pdb.set_trace()
